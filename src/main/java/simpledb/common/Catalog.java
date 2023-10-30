@@ -23,12 +23,20 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class Catalog {
 
+    private final Map<String, Integer> nameToIdMap;
+    private final Map<Integer, String> idToNameMap;
+    private final Map<Integer, DbFile> idToDbMap;
+    private final Map<Integer, String> idToPkeyMap;
+
     /**
      * Constructor.
      * Creates a new, empty catalog.
      */
     public Catalog() {
-        // some code goes here
+        nameToIdMap = new HashMap<>();
+        idToNameMap = new HashMap<>();
+        idToDbMap = new HashMap<>();
+        idToPkeyMap = new HashMap<>();
     }
 
     /**
@@ -41,7 +49,11 @@ public class Catalog {
      * @param pkeyField the name of the primary key field
      */
     public void addTable(DbFile file, String name, String pkeyField) {
-        // some code goes here
+        // TODO: pkeyField实现
+        nameToIdMap.put(name, file.getId());
+        idToNameMap.put(file.getId(), name);
+        idToDbMap.put(file.getId(), file);
+        idToPkeyMap.put(file.getId(), pkeyField);
     }
 
     public void addTable(DbFile file, String name) {
@@ -64,8 +76,8 @@ public class Catalog {
      * @throws NoSuchElementException if the table doesn't exist
      */
     public int getTableId(String name) throws NoSuchElementException {
-        // some code goes here
-        return 0;
+        if(!nameToIdMap.containsKey(name)) throw new NoSuchElementException();
+        return nameToIdMap.get(name);
     }
 
     /**
@@ -75,8 +87,8 @@ public class Catalog {
      * @throws NoSuchElementException if the table doesn't exist
      */
     public TupleDesc getTupleDesc(int tableid) throws NoSuchElementException {
-        // some code goes here
-        return null;
+        DbFile dbFile = getDatabaseFile(tableid);
+        return dbFile.getTupleDesc();
     }
 
     /**
@@ -86,28 +98,30 @@ public class Catalog {
      *     function passed to addTable
      */
     public DbFile getDatabaseFile(int tableid) throws NoSuchElementException {
-        // some code goes here
-        return null;
+        if(!idToDbMap.containsKey(tableid) || idToDbMap.get(tableid) == null) throw new NoSuchElementException();
+        return idToDbMap.get(tableid);
     }
 
-    public String getPrimaryKey(int tableid) {
-        // some code goes here
-        return null;
+    public String getPrimaryKey(int tableid) throws NoSuchElementException{
+        if(!idToPkeyMap.containsKey(tableid)) throw new NoSuchElementException();
+        return idToPkeyMap.get(tableid);
     }
 
     public Iterator<Integer> tableIdIterator() {
-        // some code goes here
-        return null;
+        return idToDbMap.keySet().iterator();
     }
 
-    public String getTableName(int id) {
-        // some code goes here
-        return null;
+    public String getTableName(int id) throws NoSuchElementException{
+        if(!idToNameMap.containsKey(id)) throw new NoSuchElementException();
+        return idToNameMap.get(id);
     }
     
     /** Delete all tables from the catalog */
     public void clear() {
-        // some code goes here
+        nameToIdMap.clear();
+        idToNameMap.clear();
+        idToDbMap.clear();
+        idToPkeyMap.clear();
     }
     
     /**

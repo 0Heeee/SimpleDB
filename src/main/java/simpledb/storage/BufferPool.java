@@ -1,14 +1,13 @@
 package simpledb.storage;
 
-import simpledb.common.Database;
-import simpledb.common.Permissions;
-import simpledb.common.DbException;
-import simpledb.common.DeadlockException;
+import simpledb.common.*;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
 import java.io.*;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -27,6 +26,10 @@ public class BufferPool {
     private static final int DEFAULT_PAGE_SIZE = 4096;
 
     private static int pageSize = DEFAULT_PAGE_SIZE;
+
+    private final Map<PageId, Integer> pidToBpidMap;
+    private final Page[] pages;
+    private int pageNum = 0;
     
     /** Default number of pages passed to the constructor. This is used by
     other classes. BufferPool should use the numPages argument to the
@@ -39,7 +42,9 @@ public class BufferPool {
      * @param numPages maximum number of pages in this buffer pool.
      */
     public BufferPool(int numPages) {
-        // some code goes here
+        pages = new Page[numPages];
+        pidToBpidMap = new HashMap<>();
+        pageNum = 0;
     }
     
     public static int getPageSize() {
@@ -48,12 +53,12 @@ public class BufferPool {
     
     // THIS FUNCTION SHOULD ONLY BE USED FOR TESTING!!
     public static void setPageSize(int pageSize) {
-    	BufferPool.pageSize = pageSize;
+        BufferPool.pageSize = pageSize;
     }
     
     // THIS FUNCTION SHOULD ONLY BE USED FOR TESTING!!
     public static void resetPageSize() {
-    	BufferPool.pageSize = DEFAULT_PAGE_SIZE;
+        BufferPool.pageSize = DEFAULT_PAGE_SIZE;
     }
 
     /**
@@ -72,9 +77,25 @@ public class BufferPool {
      * @param perm the requested permissions on the page
      */
     public  Page getPage(TransactionId tid, PageId pid, Permissions perm)
-        throws TransactionAbortedException, DbException {
-        // some code goes here
-        return null;
+            throws TransactionAbortedException, DbException {
+        // TODO: TransactionId and Permissions
+        if(!pidToBpidMap.containsKey(pid)) pidToBpidMap.put(pid, -1);
+        int bpid = pidToBpidMap.get(pid);
+        if(pidToBpidMap.get(pid) == -1) {
+            DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+            if(dbFile instanceof HeapFile) {
+                HeapFile hf = (HeapFile) dbFile;
+                if(pageNum<hf.numPages()) {
+                    pages[pageNum] = hf.readPage(pid);
+                    pidToBpidMap.put(pid, pageNum);
+                    bpid = pageNum;
+                    ++pageNum;
+                } else throw new DbException("BufferPool is full.");
+            } else throw new DbException("Load DbFile error.");
+        } else if(bpid < 0 || bpid >= pages.length) {
+            throw new DbException("BPageId is not allowed.");
+        }
+        return pages[bpid];
     }
 
     /**
