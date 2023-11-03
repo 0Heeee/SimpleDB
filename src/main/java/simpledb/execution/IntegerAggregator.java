@@ -1,7 +1,14 @@
 package simpledb.execution;
 
+import simpledb.common.DbException;
 import simpledb.common.Type;
+import simpledb.storage.Field;
+import simpledb.storage.IntField;
 import simpledb.storage.Tuple;
+import simpledb.storage.TupleDesc;
+import simpledb.transaction.TransactionAbortedException;
+
+import java.util.*;
 
 /**
  * Knows how to compute some aggregate over a set of IntFields.
@@ -9,7 +16,13 @@ import simpledb.storage.Tuple;
 public class IntegerAggregator implements Aggregator {
 
     private static final long serialVersionUID = 1L;
-
+    private final int gbField;
+    private final int afield;
+    private final Op aop;
+    private final TupleDesc td;
+    private final Map<Field, Integer> sumForAvg = new HashMap<>();
+    private final Map<Field, Integer> numForAvg = new HashMap<>();
+    private final Map<Field, Tuple> tupleList = new HashMap<>();
     /**
      * Aggregate constructor
      * 
@@ -26,7 +39,23 @@ public class IntegerAggregator implements Aggregator {
      */
 
     public IntegerAggregator(int gbfield, Type gbfieldtype, int afield, Op what) {
-        // some code goes here
+        this.gbField = gbfield;
+        this.afield = afield;
+        this.aop = what;
+        Type[] types;
+        if(gbfield == Aggregator.NO_GROUPING) types = new Type[]{Type.INT_TYPE};
+        else types = new Type[]{gbfieldtype, Type.INT_TYPE};
+        this.td = new TupleDesc(types);
+    }
+
+    private Tuple convertTuple(Tuple tup) {
+        Tuple t = new Tuple(td);
+        if(gbField == Aggregator.NO_GROUPING) t.setField(0, tup.getField(afield));
+        else {
+            t.setField(0, tup.getField(gbField));
+            t.setField(1, tup.getField(afield));
+        }
+        return t;
     }
 
     /**
@@ -37,7 +66,70 @@ public class IntegerAggregator implements Aggregator {
      *            the Tuple containing an aggregate field and a group-by field
      */
     public void mergeTupleIntoGroup(Tuple tup) {
-        // some code goes here
+        Field field = null;
+        int apos = 0;
+        if(gbField != Aggregator.NO_GROUPING) {
+            field = tup.getField(gbField);
+            apos = 1;
+        }
+
+        if(aop == Op.MIN) {
+            if(!tupleList.containsKey(field)) {
+                tupleList.put(field, convertTuple(tup));
+            } else {
+                Tuple t = tupleList.get(field);
+                if(tup.getField(afield).compare(Predicate.Op.LESS_THAN, t.getField(apos))) {
+                    t.setField(apos, tup.getField(afield));
+                }
+                tupleList.put(field, t);
+            }
+        } else if(aop == Op.MAX) {
+            if(!tupleList.containsKey(field)) {
+                tupleList.put(field, convertTuple(tup));
+            } else {
+                Tuple t = tupleList.get(field);
+                if(tup.getField(afield).compare(Predicate.Op.GREATER_THAN, t.getField(apos))) {
+                    t.setField(apos, tup.getField(afield));
+                }
+                tupleList.put(field, t);
+            }
+        } else if(aop == Op.SUM) {
+            if(!tupleList.containsKey(field)) {
+                tupleList.put(field, convertTuple(tup));
+            } else {
+                Tuple t = tupleList.get(field);
+                int sum = ((IntField)t.getField(apos)).getValue()+((IntField)tup.getField(afield)).getValue();
+                t.setField(apos, new IntField(sum));
+                tupleList.put(field, t);
+            }
+        } else if(aop == Op.AVG) {
+            if(!tupleList.containsKey(field)) {
+                tupleList.put(field, convertTuple(tup));
+                sumForAvg.put(field, ((IntField)tup.getField(afield)).getValue());
+                numForAvg.put(field, 1);
+            } else {
+                Tuple t = tupleList.get(field);
+                sumForAvg.put(field, sumForAvg.get(field)+((IntField)tup.getField(afield)).getValue());
+                numForAvg.put(field, numForAvg.get(field)+1);
+                t.setField(apos, new IntField(sumForAvg.get(field) / numForAvg.get(field)));
+                tupleList.put(field, t);
+            }
+        } else if(aop == Op.COUNT) {
+            if(!tupleList.containsKey(field)) {
+                Tuple t = new Tuple(td);
+                if(gbField == Aggregator.NO_GROUPING) t.setField(0, new IntField(1));
+                else {
+                    t.setField(0, tup.getField(gbField));
+                    t.setField(1, new IntField(1));
+                }
+                tupleList.put(field, t);
+            } else {
+                Tuple t = tupleList.get(field);
+                int count = ((IntField)t.getField(apos)).getValue()+1;
+                t.setField(apos, new IntField(count));
+                tupleList.put(field, t);
+            }
+        }
     }
 
     /**
@@ -49,9 +141,38 @@ public class IntegerAggregator implements Aggregator {
      *         the constructor.
      */
     public OpIterator iterator() {
-        // some code goes here
-        throw new
-        UnsupportedOperationException("please implement me for lab2");
+        return new OpIterator() {
+            private Iterator<Tuple> it;
+            @Override
+            public void open() throws DbException, TransactionAbortedException {
+                it = tupleList.values().iterator();
+            }
+
+            @Override
+            public boolean hasNext() throws DbException, TransactionAbortedException {
+                return it != null && it.hasNext();
+            }
+
+            @Override
+            public Tuple next() throws DbException, TransactionAbortedException, NoSuchElementException {
+                return it.next();
+            }
+
+            @Override
+            public void rewind() throws DbException, TransactionAbortedException {
+                open();
+            }
+
+            @Override
+            public TupleDesc getTupleDesc() {
+                return td;
+            }
+
+            @Override
+            public void close() {
+                it = null;
+            }
+        };
     }
 
 }
