@@ -2,10 +2,19 @@ package simpledb.optimizer;
 
 import simpledb.execution.Predicate;
 
+import java.util.ArrayList;
+import java.util.List;
+
+import static java.lang.Math.*;
+
 /** A class to represent a fixed-width histogram over a single integer-based field.
  */
 public class IntHistogram {
-
+    private final int min_value;
+    private final int max_value;
+    private final int bucker_width;
+    private int num_tuples;
+    private final ArrayList<Integer> buckets;
     /**
      * Create a new IntHistogram.
      * 
@@ -22,8 +31,15 @@ public class IntHistogram {
      * @param min The minimum integer value that will ever be passed to this class for histogramming
      * @param max The maximum integer value that will ever be passed to this class for histogramming
      */
-    public IntHistogram(int buckets, int min, int max) {
-    	// some code goes here
+    public IntHistogram(int bucket_num, int min, int max) {
+        this.min_value = min;
+        this.max_value = max;
+        this.bucker_width = (int) ceil((double) (max-min+1)/bucket_num);
+        this.buckets = new ArrayList<>();
+        for (int i = 0; i < bucket_num; i++) {
+            this.buckets.add(0);
+        }
+        this.num_tuples = 0;
     }
 
     /**
@@ -31,7 +47,11 @@ public class IntHistogram {
      * @param v Value to add to the histogram
      */
     public void addValue(int v) {
-    	// some code goes here
+        if(v < min_value || v > max_value) return;
+        v -= min_value;
+        int bucketId = v / bucker_width;
+        buckets.set(bucketId, buckets.get(bucketId)+1);
+        ++num_tuples;
     }
 
     /**
@@ -45,8 +65,40 @@ public class IntHistogram {
      * @return Predicted selectivity of this particular operator and value
      */
     public double estimateSelectivity(Predicate.Op op, int v) {
-
-    	// some code goes here
+        if(v < min_value) {
+            if(op == Predicate.Op.EQUALS || op == Predicate.Op.LESS_THAN || op == Predicate.Op.LESS_THAN_OR_EQ) return 0;
+            else if(op == Predicate.Op.NOT_EQUALS || op == Predicate.Op.GREATER_THAN || op == Predicate.Op.GREATER_THAN_OR_EQ) return 1;
+        } else if(v > max_value) {
+            if(op == Predicate.Op.EQUALS || op == Predicate.Op.GREATER_THAN || op == Predicate.Op.GREATER_THAN_OR_EQ) return 0;
+            else if(op == Predicate.Op.NOT_EQUALS || op == Predicate.Op.LESS_THAN || op == Predicate.Op.LESS_THAN_OR_EQ) return 1;
+        }
+        v -= min_value;
+        int bucketId = v / bucker_width;
+        double selectivity = 0.0;
+        if(op == Predicate.Op.EQUALS || op == Predicate.Op.NOT_EQUALS ||
+                op == Predicate.Op.LESS_THAN_OR_EQ || op == Predicate.Op.GREATER_THAN_OR_EQ) {
+            selectivity += (double) buckets.get(bucketId) / bucker_width / num_tuples;
+            if(op == Predicate.Op.EQUALS) return selectivity;
+            if(op == Predicate.Op.NOT_EQUALS) return 1-selectivity;
+        }
+        if(op == Predicate.Op.GREATER_THAN || op == Predicate.Op.GREATER_THAN_OR_EQ) {
+            double b_f =(double) buckets.get(bucketId) / num_tuples;
+            double b_part = (double) ((bucketId + 1) * bucker_width - v) / bucker_width;
+            selectivity += b_f * b_part;
+            for (int i = bucketId + 1; i < buckets.size(); i++) {
+                selectivity += (double) buckets.get(i) / num_tuples;
+            }
+            return min(selectivity, 1.0);
+        } else if(op == Predicate.Op.LESS_THAN || op == Predicate.Op.LESS_THAN_OR_EQ){
+            double b_f =(double) buckets.get(bucketId) / num_tuples;
+            double b_part = (double) (v - bucketId * bucker_width) / bucker_width;
+            selectivity += b_f * b_part;
+            for (int i = 0; i < bucketId; i++) {
+                selectivity += (double) buckets.get(i) / num_tuples;
+            }
+            return min(selectivity, 1.0);
+        }
+        // never happen
         return -1.0;
     }
     
@@ -60,15 +112,13 @@ public class IntHistogram {
      * */
     public double avgSelectivity()
     {
-        // some code goes here
-        return 1.0;
+        return (double) buckets.stream().reduce(Integer::sum).get() / buckets.size() / bucker_width / num_tuples;
     }
     
     /**
      * @return A string describing this histogram, for debugging purposes
      */
     public String toString() {
-        // some code goes here
-        return null;
+        return buckets.toString();
     }
 }

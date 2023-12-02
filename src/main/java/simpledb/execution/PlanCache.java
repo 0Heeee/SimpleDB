@@ -18,7 +18,7 @@ public class PlanCache {
         specified join set
         @param s the set of joins for which a new ordering (plan) is being added
         @param cost the estimated cost of the specified plan
-        @param card the estimatied cardinality of the specified plan
+        @param card the estimated cardinality of the specified plan
         @param order the ordering of the joins in the plan
     */
     public void addPlan(Set<LogicalJoinNode> s, double cost, int card, List<LogicalJoinNode> order) {

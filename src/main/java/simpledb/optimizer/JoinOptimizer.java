@@ -10,6 +10,8 @@ import java.util.*;
 import javax.swing.*;
 import javax.swing.tree.*;
 
+import static java.lang.Math.*;
+
 /**
  * The JoinOptimizer class is responsible for ordering a series of joins
  * optimally, and for selecting the best instantiation of a join for a given
@@ -74,7 +76,6 @@ public class JoinOptimizer {
         JoinPredicate p = new JoinPredicate(t1id, lj.p, t2id);
 
         if (lj.p == Predicate.Op.EQUALS) {
-
             try {
                 // dynamically load HashEquiJoin -- if it doesn't exist, just
                 // fall back on regular join
@@ -99,7 +100,7 @@ public class JoinOptimizer {
      * The cost of the join should be calculated based on the join algorithm (or
      * algorithms) that you implemented for Lab 2. It should be a function of
      * the amount of data that must be read over the course of the query, as
-     * well as the number of CPU opertions performed by your join. Assume that
+     * well as the number of CPU operations performed by your join. Assume that
      * the cost of a single predicate application is roughly 1.
      * 
      * 
@@ -130,7 +131,9 @@ public class JoinOptimizer {
             // HINT: You may need to use the variable "j" if you implemented
             // a join algorithm that's more complicated than a basic
             // nested-loops join.
-            return -1.0;
+            double ioCost = card1 * cost2;
+            double cpuCost = card1 * card2;
+            return cost1 + ioCost + cpuCost;
         }
     }
 
@@ -175,12 +178,24 @@ public class JoinOptimizer {
                                                    boolean t2pkey, Map<String, TableStats> stats,
                                                    Map<String, Integer> tableAliasToId) {
         int card = 1;
-        // some code goes here
+        if(joinOp == Predicate.Op.EQUALS) {
+            if(t1pkey && !t2pkey) card = card2;
+            else if(!t1pkey && t2pkey) card = card1;
+            else if(t1pkey && t2pkey) card = min(card1, card2);
+            else card = max(card1, card2);
+        } else if(joinOp == Predicate.Op.NOT_EQUALS) {
+            if(t1pkey && !t2pkey) card = card1 * card2 - card2;
+            else if(!t1pkey && t2pkey) card = card1 * card2 - card1;
+            else if(t1pkey && t2pkey) card = card1 * card2 - min(card1, card2);
+            else card = card1 * card2 - max(card1, card2);
+        } else {
+            card = (int) (0.3 * card1 * card2);
+        }
         return card <= 0 ? 1 : card;
     }
 
     /**
-     * Helper method to enumerate all of the subsets of a given size of a
+     * Helper method to enumerate all the subsets of a given size of a
      * specified vector.
      * 
      * @param v
@@ -229,16 +244,33 @@ public class JoinOptimizer {
      *         order in which they should be executed.
      * @throws ParsingException
      *             when stats or filter selectivities is missing a table in the
-     *             join, or or when another internal error occurs
+     *             join, or when another internal error occurs
      */
     public List<LogicalJoinNode> orderJoins(
             Map<String, TableStats> stats,
             Map<String, Double> filterSelectivities, boolean explain)
             throws ParsingException {
 
-        // some code goes here
-        //Replace the following
-        return joins;
+        PlanCache pc = new PlanCache();
+        CostCard bestCostCard = new CostCard();
+        for (int i = 1; i <= joins.size(); i++) {
+            Set<Set<LogicalJoinNode>> sets = enumerateSubsets(joins, i);
+            for (Set<LogicalJoinNode> set : sets) {
+                double bestCostSoFar = Double.MAX_VALUE;
+                for (LogicalJoinNode joinToRemove : set) {
+                    CostCard costCard = computeCostAndCardOfSubplan(stats, filterSelectivities, joinToRemove, set, bestCostSoFar, pc);
+                    if (costCard == null) continue;
+                    bestCostCard = costCard;
+                    bestCostSoFar = costCard.cost;
+                }
+                if(bestCostSoFar != Double.MAX_VALUE) {
+                    pc.addPlan(set, bestCostCard.cost, bestCostCard.card, bestCostCard.plan);
+                }
+            }
+        }
+
+        if(explain) printJoins(bestCostCard.plan, pc, stats, filterSelectivities);
+        return bestCostCard.plan;
     }
 
     // ===================== Private Methods =================================
@@ -246,11 +278,11 @@ public class JoinOptimizer {
     /**
      * This is a helper method that computes the cost and cardinality of joining
      * joinToRemove to joinSet (joinSet should contain joinToRemove), given that
-     * all of the subsets of size joinSet.size() - 1 have already been computed
+     * all the subsets of size joinSet.size() - 1 have already been computed
      * and stored in PlanCache pc.
      * 
      * @param stats
-     *            table stats for all of the tables, referenced by table names
+     *            table stats for all the tables, referenced by table names
      *            rather than alias (see {@link #orderJoins})
      * @param filterSelectivities
      *            the selectivities of the filters over each of the tables

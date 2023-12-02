@@ -14,7 +14,7 @@ import java.io.File;
  * LogicalPlan represents a logical query plan that has been through
  * the parser and is ready to be processed by the optimizer.
  * <p>
- * A LogicalPlan consits of a collection of table scan nodes, join
+ * A LogicalPlan consists of a collection of table scan nodes, join
  * nodes, filter nodes, a select list, and a group by field.
  * LogicalPlans can only represent queries with one aggregation field
  * and one group by field.
@@ -236,7 +236,7 @@ public class LogicalPlan {
         if (fields.length == 2)
             name = fields[1];
         if (name.equals("*")) return name;
-        //now look for occurrences of name in all of the tables
+        //now look for occurrences of name in all the tables
         Iterator<LogicalScanNode> tableIt = tables.iterator();
         String tableName = null;
         while (tableIt.hasNext()) {
@@ -244,7 +244,7 @@ public class LogicalPlan {
             try {
                 TupleDesc td = Database.getCatalog().getDatabaseFile(table.t).getTupleDesc();
 //                int id = 
-                  td.fieldNameToIndex(name);
+                td.fieldNameToIndex(name);
                 if (tableName == null) {
                     tableName = table.alias;
                 } else {
@@ -258,7 +258,6 @@ public class LogicalPlan {
             return tableName + "." + name;
         else
             throw new ParsingException("Field " + name + " does not appear in any tables.");
-
     }
 
     /** Convert the aggregate operator name s into an Aggregator.op operation.
@@ -306,7 +305,6 @@ public class LogicalPlan {
             String baseTableName = Database.getCatalog().getTableName(table.t);
             statsMap.put(baseTableName, baseTableStats.get(baseTableName));
             filterSelectivities.put(table.alias, 1.0);
-
         }
 
         for (LogicalFilterNode lf : filters) {
@@ -325,7 +323,7 @@ public class LogicalPlan {
                 throw new ParsingException("Unknown field in filter expression " + lf.fieldQuantifiedName);
             }
             if (ftyp == Type.INT_TYPE)
-                f = new IntField(new Integer(lf.c));
+                f = new IntField(Integer.parseInt(lf.c));
             else
                 f = new StringField(lf.c, Type.STRING_LEN);
 

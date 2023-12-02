@@ -2,14 +2,14 @@ package simpledb.optimizer;
 
 import simpledb.execution.Predicate;
 
-/** A LogicalJoinNode represens the state needed of a join of two
+/** A LogicalJoinNode represents the state needed of a join of two
  * tables in a LogicalQueryPlan */
 public class LogicalJoinNode {
 
-    /** The first table to join (may be null). It's the alias of the table (if no alias, the true table name) */
+    /** The first table to join (maybe null). It's the alias of the table (if no alias, the true table name) */
     public String t1Alias;
 
-    /** The second table to join (may be null).  It's the alias of the table, (if no alias, the true table name).*/
+    /** The second table to join (maybe null).  It's the alias of the table, (if no alias, the true table name).*/
     public String t2Alias;
     
     /** The name of the field in t1 to join with. It's the pure name of a field, rather that alias.field. */
