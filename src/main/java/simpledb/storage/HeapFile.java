@@ -6,10 +6,7 @@ import simpledb.common.Permissions;
 import simpledb.transaction.TransactionAbortedException;
 import simpledb.transaction.TransactionId;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.RandomAccessFile;
+import java.io.*;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -136,21 +133,28 @@ public class HeapFile implements DbFile {
     // see DbFile.java for javadocs
     public List<Page> insertTuple(TransactionId tid, Tuple t)
             throws DbException, IOException, TransactionAbortedException {
+        BufferPool bufferPool = Database.getBufferPool();
         for (int i = 0; i < numPages(); i++) {
             PageId pid = new HeapPageId(getId(), i);
-            HeapPage page = (HeapPage) Database.getBufferPool().getPage(tid, pid, Permissions.READ_WRITE);
+            HeapPage page = (HeapPage) bufferPool.getPage(tid, pid, Permissions.READ_WRITE);
             // insert tuple into current page
             if(page.getNumEmptySlots() != 0) {
                 page.insertTuple(t);
                 ArrayList<Page> pages = new ArrayList<>();
                 pages.add(page);
                 return pages;
+            } else {
+                bufferPool.unsafeReleasePage(tid, page.getId());
             }
         }
         // insert tuple into new page
-        HeapPage hp = new HeapPage(new HeapPageId(getId(), numPages()), HeapPage.createEmptyPageData());
+        BufferedOutputStream outputStream = new BufferedOutputStream(new FileOutputStream(file, true));
+        byte[] emptyPageData = HeapPage.createEmptyPageData();
+        // 向文件末尾添加数据
+        outputStream.write(emptyPageData);
+        outputStream.close();
+        HeapPage hp = (HeapPage) bufferPool.getPage(tid, new HeapPageId(getId(), numPages() - 1), Permissions.READ_WRITE);
         hp.insertTuple(t);
-        writePage(hp);
         ArrayList<Page> pages = new ArrayList<>();
         pages.add(hp);
         return pages;
@@ -169,7 +173,6 @@ public class HeapFile implements DbFile {
 
     // see DbFile.java for javadocs
     public DbFileIterator iterator(TransactionId tid) {
-        // TODO: TransactionId
         return new AbstractDbFileIterator() {
             private Iterator<Tuple> tupleIterator = null;
             private HeapPage currentPage = null;

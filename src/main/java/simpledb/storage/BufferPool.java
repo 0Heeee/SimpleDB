@@ -8,7 +8,7 @@ import java.io.*;
 
 import java.sql.Timestamp;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.*;
 import java.util.function.BiConsumer;
 
 /**
@@ -31,6 +31,8 @@ public class BufferPool {
     private final Map<PageId, Integer> pidToBpidMap;
     private final Page[] pages;
     private final Queue<Integer> emptyPages;
+    private final LockManager lockManager;
+    private final Map<TransactionId, List<Page>> tidToPagesMap;
     
     /** Default number of pages passed to the constructor. This is used by
     other classes. BufferPool should use the numPages argument to the
@@ -48,6 +50,8 @@ public class BufferPool {
         for (int i = 0; i < numPages; i++) {
             emptyPages.add(i);
         }
+        lockManager = new LockManager();
+        tidToPagesMap = new HashMap<>();
     }
     
     public static int getPageSize() {
@@ -81,10 +85,52 @@ public class BufferPool {
      */
     public Page getPage(TransactionId tid, PageId pid, Permissions perm)
             throws TransactionAbortedException, DbException {
-        // TODO: TransactionId and Permissions
-        if(!pidToBpidMap.containsKey(pid)) pidToBpidMap.put(pid, -1);
-        int bpid = pidToBpidMap.get(pid);
-        if(pidToBpidMap.get(pid) == -1) {
+        // lockType为要获取的锁的类型
+        LockManager.PageLock.LockType acquireType;
+        if(perm == Permissions.READ_WRITE) {
+            acquireType = LockManager.PageLock.LockType.EXCLUSIVE;
+        } else {
+            acquireType = LockManager.PageLock.LockType.SHARE;
+        }
+        // 循环获取锁，若时间超过50ms则等待超时，获取锁失败
+        long start = System.currentTimeMillis();
+        while (true) {
+            try {
+                if (lockManager.acquireLock(pid, tid, acquireType)) {
+                    break;
+                }
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+            long now = System.currentTimeMillis();
+            if (now - start > 50) {
+                throw new TransactionAbortedException();
+            }
+        }
+//        Boolean success = false;
+//        final ExecutorService exec = Executors.newSingleThreadExecutor();
+//        Callable<Boolean> call = () -> {
+//            while(true) {
+//                try {
+//                    if (lockManager.acquireLock(pid, tid, acquireType)) {
+//                        return true;
+//                    }
+//                } catch (Exception e) {
+//                    e.printStackTrace();
+//                }
+//            }
+//        };
+//        try {
+//            Future<Boolean> future = exec.submit(call);
+//            success = future.get(500, TimeUnit.MILLISECONDS);
+//        } catch (Exception e) {
+////            e.printStackTrace();
+//        }
+//        exec.shutdown();
+//        if(!success) throw new TransactionAbortedException();
+        // 成功获取锁，查找所需要的Page
+        int bpid;
+        if(!pidToBpidMap.containsKey(pid)) {
             DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
             if(dbFile instanceof HeapFile) {
                 HeapFile hf = (HeapFile) dbFile;
@@ -94,8 +140,20 @@ public class BufferPool {
                 pidToBpidMap.put(pid, emptyPage);
                 bpid = emptyPage;
             } else throw new DbException("Load DbFile error.");
-        } else if(bpid < 0 || bpid >= pages.length) {
-            throw new DbException("BPageId is not allowed.");
+        } else {
+            bpid = pidToBpidMap.get(pid);
+            if(bpid < 0 || bpid >= pages.length) {
+                throw new DbException("BPageId is not allowed.");
+            }
+        }
+        // 若要写Page，则将该Page添加到tid事务相关的PageList中
+        if(perm == Permissions.READ_WRITE) {
+            List<Page> changedPages = tidToPagesMap.get(tid);
+            if(changedPages == null) {
+                tidToPagesMap.put(tid, new ArrayList<Page>(){});
+                changedPages = tidToPagesMap.get(tid);
+            }
+            changedPages.add(pages[bpid]);
         }
         return pages[bpid];
     }
@@ -110,8 +168,7 @@ public class BufferPool {
      * @param pid the ID of the page to unlock
      */
     public  void unsafeReleasePage(TransactionId tid, PageId pid) {
-        // some code goes here
-        // not necessary for lab1|lab2
+        lockManager.releaseLock(pid, tid);
     }
 
     /**
@@ -120,8 +177,7 @@ public class BufferPool {
      * @param tid the ID of the transaction requesting the unlock
      */
     public void transactionComplete(TransactionId tid) {
-        // some code goes here
-        // not necessary for lab1|lab2
+        transactionComplete(tid, true);
     }
 
     /** Return true if the specified transaction has a lock on the specified page */
@@ -139,8 +195,29 @@ public class BufferPool {
      * @param commit a flag indicating whether we should commit or abort
      */
     public void transactionComplete(TransactionId tid, boolean commit) {
-        // some code goes here
-        // not necessary for lab1|lab2
+        if(commit) {
+            try {
+                flushPages(tid);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        } else {
+            // 回滚事务
+            recoverPages(tid);
+        }
+        lockManager.completeTransaction(tid);
+    }
+
+    private void recoverPages(TransactionId tid) {
+        List<Page> changedPages = tidToPagesMap.get(tid);
+        if(changedPages == null) return;
+        for (Page changedPage : changedPages) {
+            PageId pageId = changedPage.getId();
+            HeapFile hf = (HeapFile) Database.getCatalog().getDatabaseFile(pageId.getTableId());
+            Page oldPage = hf.readPage(pageId);
+            pages[pidToBpidMap.get(pageId)] = oldPage;
+            changedPage.markDirty(false, tid);
+        }
     }
 
     /**
@@ -163,7 +240,8 @@ public class BufferPool {
         HeapFile hf = (HeapFile) Database.getCatalog().getDatabaseFile(tableId);
         List<Page> changedPages = hf.insertTuple(tid, t);
         // update BufferPool
-        updateBufferPool(tid, changedPages);
+        tidToPagesMap.put(tid, changedPages);
+        updateBufferPool(tid);
     }
 
     /**
@@ -185,10 +263,12 @@ public class BufferPool {
         HeapFile hf = (HeapFile) Database.getCatalog().getDatabaseFile(tableId);
         List<Page> changedPages = hf.deleteTuple(tid, t);
         // update BufferPool
-        updateBufferPool(tid, changedPages);
+        tidToPagesMap.put(tid, changedPages);
+        updateBufferPool(tid);
     }
 
-    private void updateBufferPool(TransactionId tid, List<Page> changedPages) throws DbException {
+    private void updateBufferPool(TransactionId tid) throws DbException {
+        List<Page> changedPages = tidToPagesMap.get(tid);
         for (Page changedPage : changedPages) {
             changedPage.markDirty(true, tid);
             if(!pidToBpidMap.containsKey(changedPage.getId())) {
@@ -206,14 +286,11 @@ public class BufferPool {
      *     break simpledb if running in NO STEAL mode.
      */
     public synchronized void flushAllPages() throws IOException {
-        pidToBpidMap.forEach(new BiConsumer<PageId, Integer>() {
-            @Override
-            public void accept(PageId pageId, Integer integer) {
-                try {
-                    flushPage(pageId);
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                }
+        pidToBpidMap.forEach((pageId, integer) -> {
+            try {
+                flushPage(pageId);
+            } catch (IOException e) {
+                throw new RuntimeException(e);
             }
         });
     }
@@ -245,8 +322,11 @@ public class BufferPool {
     /** Write all pages of the specified transaction to disk.
      */
     public synchronized void flushPages(TransactionId tid) throws IOException {
-        // some code goes here
-        // not necessary for lab1|lab2
+        List<Page> changedPages = tidToPagesMap.get(tid);
+        if(changedPages == null) return;
+        for (Page changedPage : changedPages) {
+            flushPage(changedPage.getId());
+        }
     }
 
     /**
@@ -254,19 +334,15 @@ public class BufferPool {
      * Flushes the page to disk to ensure dirty pages are updated on disk.
      */
     private synchronized void evictPage() throws DbException {
-        Iterator<Integer> it = pidToBpidMap.values().iterator();
-        if(!it.hasNext()) return;
-        int bpid = it.next();
-        HeapPage hp = (HeapPage) pages[bpid];
-        if(hp.isDirty() != null) {
-            try {
-                flushPage(hp.pid);
-            } catch (IOException e) {
-                throw new RuntimeException(e);
+        for (int bpid : pidToBpidMap.values()) {
+            HeapPage hp = (HeapPage) pages[bpid];
+            if (hp.isDirty() == null) {
+                discardPage(hp.pid);
+                emptyPages.add(bpid);
+                return;
             }
         }
-        discardPage(hp.pid);
-        emptyPages.add(bpid);
+        throw new DbException("BufferPool is full of dirty pages.");
     }
 
 }

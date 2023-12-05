@@ -23,6 +23,7 @@ public class Insert extends Operator {
     private final TupleDesc td;
     private final int tableId;
     private boolean haveInsert = false;
+    private final TransactionId tid;
 
     /**
      * Constructor.
@@ -46,6 +47,7 @@ public class Insert extends Operator {
         this.tableId = tableId;
         Type[] types = new Type[]{ Type.INT_TYPE };
         this.td = new TupleDesc(types);
+        this.tid = t;
     }
 
     public TupleDesc getTupleDesc() {
@@ -87,7 +89,7 @@ public class Insert extends Operator {
         while(child.hasNext()) {
             Tuple t = child.next();
             try {
-                bufferPool.insertTuple(new TransactionId(), tableId, t);
+                bufferPool.insertTuple(tid, tableId, t);
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }

@@ -21,7 +21,7 @@ import java.util.*;
 public class SeqScan implements OpIterator {
 
     private static final long serialVersionUID = 1L;
-    private TransactionId tid;
+    private final TransactionId tid;
     private int tableId;
     private String tableAlias;
     private DbFileIterator dbFileIterator = null;
@@ -43,7 +43,6 @@ public class SeqScan implements OpIterator {
      *            tableAlias.null, or null.null).
      */
     public SeqScan(TransactionId tid, int tableid, String tableAlias) {
-        // TODO: TransactionId
         this.tid = tid;
         this.tableId = tableid;
         this.tableAlias = tableAlias;
