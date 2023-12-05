@@ -37,7 +37,7 @@ Your first job is to implement the findLeafPage() function in BTreeFile.java. Th
 
 你的第一个工作是在BTreeFile.java中实现findLeafPage()函数。这个函数用于在给定一个特定的键值的情况下找到合适的叶子页，并且用于搜索和插入。例如，假设我们有一个有两个叶子页的B+Tree（见图1）。根节点是一个内部页面，有一个条目，包含一个键（本例中为6）和两个子指针。给定一个值为1，这个函数应该返回第一个叶子页。同样地，如果数值为8，这个函数应该返回第二个页面。不太明显的情况是，如果我们给定的键值是6，可能有重复的键，所以两个叶子页上可能都有6。在这种情况下，这个函数应该返回第一个（左边）叶子页。
 
-![](image/6-lab5/1644485061911.png)
+![](../EN/simple_tree.png)
 Figure 1: A simple B+ Tree with duplicate keys
 
 图1：一个简单的有重复 key 的 B+ 树
@@ -81,7 +81,8 @@ In this exercise you will implement splitLeafPage() and splitInternalPage() in B
 
 在这个练习中，你将在 BTreeFile.java 中实现 splitLeafPage() 和 splitInternalPage() 。如果被分割的页面是根页面，你将需要创建一个新的内部节点来成为新的根页面，并更新BTreeRootPtrPage。否则，你将需要以READ_WRITE权限获取父页，必要时递归分割，并添加一个新条目。你会发现函数getParentWithEmptySlots()对于处理这些不同的情况非常有用。在splitLeafPage()中，你应该将键 "复制 "到父页上，而在splitInternalPage()中，你应该将键 "推 "到父页上。如果这一点令人困惑，请参见图2，并回顾教科书中的10.5节。记住要根据需要更新新页面的父指针（为了简单起见，我们不在图中显示父指针）。当一个内部节点被分割时，你将需要更新所有被移动的子节点的父指针。你可能会发现函数updateParentPointers()对这项任务很有用。此外，记得要更新任何被拆分的叶子页面的兄弟姐妹指针。最后，返回新的tuple或条目应该被插入的页面，如所提供的键字段所示。(提示：你不需要担心所提供的键实际上可能正好落在要分割的tuple/条目的中心。在分割过程中，你应该忽略这个键，而只是用它来决定返回两个页面中的哪一个）。
 
-![](image/6-lab5/1644501314066.png)
+![](../EN/splitting_internal.png)
+![](../EN/splitting_leaf.png)
 Figure 2: Splitting pages
 
 Whenever you create a new page, either because of splitting a page or creating a new root page, call getEmptyPage() to get the new page. This function is an abstraction which will allow us to reuse pages that have been deleted due to merging (covered in the next section).
@@ -158,11 +159,13 @@ In order to keep the tree balanced and not waste unnecessary space, deletions in
 
 为了保持树的平衡，不浪费不必要的空间，B+树中的删除可能会导致页面重新分配 tuple （图3）或最终合并（见图4）。你可能会发现复习一下教科书中的第10.6节是很有用的。
 
-![](image/6-lab5/1644564797612.png)
+![](../EN/redist_internal.png)
+![](../EN/redist_leaf.png)
 Figure 3: Redistributing pages
 
 
-![](image/6-lab5/1644564966538.png)
+![](../EN/merging_internal.png)
+![](../EN/merging_leaf.png)
 Figure 4: Merging pages
 
 As described in the textbook, attempting to delete a tuple from a leaf page that is less than half full should cause that page to either steal tuples from one of its siblings or merge with one of its siblings. If one of the page's siblings has tuples to spare, the tuples should be evenly distributed between the two pages, and the parent's entry should be updated accordingly (see Figure 3). However, if the sibling is also at minimum occupancy, then the two pages should merge and the entry deleted from the parent (Figure 4). In turn, deleting an entry from the parent may cause the parent to become less than half full. In this case, the parent should steal entries from its siblings or merge with a sibling. This may cause recursive merges or even deletion of the root node if the last entry is deleted from the root node.

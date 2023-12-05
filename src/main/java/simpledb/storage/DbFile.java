@@ -93,4 +93,9 @@ public interface DbFile {
      * @return TupleDesc of this DbFile.
      */
     TupleDesc getTupleDesc();
+
+    /**
+     * Returns the number of pages in this BTreeFile.
+     */
+    int numPages();
 }

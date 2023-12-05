@@ -129,23 +129,7 @@ public class BufferPool {
 //        exec.shutdown();
 //        if(!success) throw new TransactionAbortedException();
         // 成功获取锁，查找所需要的Page
-        int bpid;
-        if(!pidToBpidMap.containsKey(pid)) {
-            DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
-            if(dbFile instanceof HeapFile) {
-                HeapFile hf = (HeapFile) dbFile;
-                if(emptyPages.isEmpty()) evictPage();
-                int emptyPage = emptyPages.remove();
-                pages[emptyPage] = hf.readPage(pid);
-                pidToBpidMap.put(pid, emptyPage);
-                bpid = emptyPage;
-            } else throw new DbException("Load DbFile error.");
-        } else {
-            bpid = pidToBpidMap.get(pid);
-            if(bpid < 0 || bpid >= pages.length) {
-                throw new DbException("BPageId is not allowed.");
-            }
-        }
+        int bpid = getBufferPageId(pid);
         // 若要写Page，则将该Page添加到tid事务相关的PageList中
         if(perm == Permissions.READ_WRITE) {
             List<Page> changedPages = tidToPagesMap.get(tid);
@@ -156,6 +140,24 @@ public class BufferPool {
             changedPages.add(pages[bpid]);
         }
         return pages[bpid];
+    }
+
+    private int getBufferPageId(PageId pid) throws DbException {
+        int bpid;
+        if(!pidToBpidMap.containsKey(pid)) {
+            DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+            if(emptyPages.isEmpty()) evictPage();
+            int emptyPage = emptyPages.remove();
+            pages[emptyPage] = dbFile.readPage(pid);
+            pidToBpidMap.put(pid, emptyPage);
+            bpid = emptyPage;
+        } else {
+            bpid = pidToBpidMap.get(pid);
+            if(bpid < 0 || bpid >= pages.length) {
+                throw new DbException("BPageId is not allowed.");
+            }
+        }
+        return bpid;
     }
 
     /**
@@ -203,19 +205,23 @@ public class BufferPool {
             }
         } else {
             // 回滚事务
-            recoverPages(tid);
+            try {
+                recoverPages(tid);
+            } catch (DbException e) {
+                e.printStackTrace();
+            }
         }
         lockManager.completeTransaction(tid);
     }
 
-    private void recoverPages(TransactionId tid) {
+    private void recoverPages(TransactionId tid) throws DbException {
         List<Page> changedPages = tidToPagesMap.get(tid);
         if(changedPages == null) return;
         for (Page changedPage : changedPages) {
             PageId pageId = changedPage.getId();
-            HeapFile hf = (HeapFile) Database.getCatalog().getDatabaseFile(pageId.getTableId());
-            Page oldPage = hf.readPage(pageId);
-            pages[pidToBpidMap.get(pageId)] = oldPage;
+            DbFile dbFile = Database.getCatalog().getDatabaseFile(pageId.getTableId());
+            Page oldPage = dbFile.readPage(pageId);
+            pages[getBufferPageId(pageId)] = oldPage;
             changedPage.markDirty(false, tid);
         }
     }
@@ -237,8 +243,8 @@ public class BufferPool {
      */
     public void insertTuple(TransactionId tid, int tableId, Tuple t)
         throws DbException, IOException, TransactionAbortedException {
-        HeapFile hf = (HeapFile) Database.getCatalog().getDatabaseFile(tableId);
-        List<Page> changedPages = hf.insertTuple(tid, t);
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(tableId);
+        List<Page> changedPages = dbFile.insertTuple(tid, t);
         // update BufferPool
         tidToPagesMap.put(tid, changedPages);
         updateBufferPool(tid);
@@ -260,8 +266,8 @@ public class BufferPool {
     public  void deleteTuple(TransactionId tid, Tuple t)
         throws DbException, IOException, TransactionAbortedException {
         int tableId = t.getRecordId().getPageId().getTableId();
-        HeapFile hf = (HeapFile) Database.getCatalog().getDatabaseFile(tableId);
-        List<Page> changedPages = hf.deleteTuple(tid, t);
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(tableId);
+        List<Page> changedPages = dbFile.deleteTuple(tid, t);
         // update BufferPool
         tidToPagesMap.put(tid, changedPages);
         updateBufferPool(tid);
@@ -313,10 +319,10 @@ public class BufferPool {
      */
     private synchronized void flushPage(PageId pid) throws IOException {
         if(!pidToBpidMap.containsKey(pid)) return;
-        HeapFile hf = (HeapFile) Database.getCatalog().getDatabaseFile(pid.getTableId());
-        HeapPage hp = (HeapPage) pages[pidToBpidMap.get(pid)];
-        hf.writePage(hp);
-        hp.markDirty(false, new TransactionId());
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
+        Page page = pages[pidToBpidMap.get(pid)];
+        dbFile.writePage(page);
+        page.markDirty(false, new TransactionId());
     }
 
     /** Write all pages of the specified transaction to disk.
@@ -335,9 +341,9 @@ public class BufferPool {
      */
     private synchronized void evictPage() throws DbException {
         for (int bpid : pidToBpidMap.values()) {
-            HeapPage hp = (HeapPage) pages[bpid];
-            if (hp.isDirty() == null) {
-                discardPage(hp.pid);
+            Page page = pages[bpid];
+            if (page.isDirty() == null) {
+                discardPage(page.getId());
                 emptyPages.add(bpid);
                 return;
             }

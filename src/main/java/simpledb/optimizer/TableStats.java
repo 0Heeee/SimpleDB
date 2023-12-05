@@ -91,10 +91,10 @@ public class TableStats {
         // necessarily have to (for example) do everything
         // in a single scan of the table.
         this.tupleNum = 0;
-        HeapFile hf = (HeapFile) Database.getCatalog().getDatabaseFile(tableid);
-        DbFileIterator it = hf.iterator(new TransactionId());
-        this.td = hf.getTupleDesc();
-        this.scanCost = hf.numPages() * ioCostPerPage;
+        DbFile dbFile = Database.getCatalog().getDatabaseFile(tableid);
+        DbFileIterator it = dbFile.iterator(new TransactionId());
+        this.td = dbFile.getTupleDesc();
+        this.scanCost = dbFile.numPages() * ioCostPerPage;
         List<Integer> min_fields = new ArrayList<>();
         List<Integer> max_fields = new ArrayList<>();
         try {
@@ -138,7 +138,7 @@ public class TableStats {
         }
         intHistograms = new ArrayList<>();
         stringHistograms = new ArrayList<>();
-        Iterator<TupleDesc.TDItem> td_it = hf.getTupleDesc().iterator();
+        Iterator<TupleDesc.TDItem> td_it = dbFile.getTupleDesc().iterator();
         int idx = 0;
         while(td_it.hasNext()) {
             TupleDesc.TDItem item = td_it.next();
