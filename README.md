@@ -24,9 +24,8 @@
 - 一个缓冲池，用于缓存内存中的active Tuple和Page，并且处理并发控制和事务（在实验1中不需要担心这两点）。
 - 一个 catalog ，用于存储关于可用表和它们的模式的信息。
 - （在实验1中不包含）SQL前端或分析器
-
-- - SQL前端或分析器能够允许你直接向SimpleDB输入查询
-- SimpleDB的查询是通过将一组运算符串联到一个手工建立的查询计划中来建立的。SimpleDB中已经提供了一个简单的解析器，在后面的实验中使用。
+    - SQL前端或分析器能够允许你直接向SimpleDB输入查询
+    - SimpleDB的查询是通过将一组运算符串联到一个手工建立的查询计划中来建立的。SimpleDB中已经提供了一个简单的解析器，在后面的实验中使用。
 
 - （在实验1中不包含）查询优化器
 - （在实验1中不包含）索引
@@ -92,11 +91,13 @@ ceiling操作将结果向上取整，得到最接近整数的字节数。
 
 本节的目的是说明这些不同组件如何连接在一起来处理一个简单的查询。假设你有一个名为"some_data_file.txt"的数据文件，其内容如下：
 
+```txt
 1,1,1
 
-2,2,2
+2,2,2 
 
 3,4,4
+```
 
 你可以将其转换为SimpleDB可以查询的二进制文件，方法如下所示：
 
@@ -165,23 +166,20 @@ SELECT * FROM some_data_file
 ## 使用maven构建项目
 
 - 根据搜索引擎以及[MIT 6.830 数据库系统](https://gitee.com/DaHuYuXiXi/simple-db-hw-2021)的实现，将ant构建项目改为maven构建，需要实现两步：
+    - 迁移源代码
+        - 源代码位于src/main/java
+        - 资源文件位于src/main/resources
+        - 测试代码位于src/test/java
+        - 测试资源文件位于src/test/resources
 
-- - 迁移源代码
-
-- - - 源代码位于src/main/java
-- 资源文件位于src/main/resources
-- 测试代码位于src/test/java
-- 测试资源文件位于src/test/resources
-
-- - 添加pom.xml文件
-
-- - - 根据build.xml（ant配置文件）来添加依赖和插件
+    - 添加pom.xml文件
+        - 根据build.xml（ant配置文件）来添加依赖和插件
 
 - 出现报错
+    - `Could not find artifact org.apache.mina:mina-core:bundle:2.0.7 in nexus-aliyun...`
+    - 查阅不到相关内容，根据报错信息猜测查找不到需要的依赖，推测是之前修改中央仓库为阿里云
+    - 查找maven配置文件settings.xml，添加中央仓库，重启IDEA（又重启了电脑），最终成功构建
 
-- - `Could not find artifact org.apache.mina:mina-core:bundle:2.0.7 in nexus-aliyun...`
-- 查阅不到相关内容，根据报错信息猜测查找不到需要的依赖，推测是之前修改中央仓库为阿里云
-- 查找maven配置文件settings.xml，添加中央仓库，重启IDEA（又重启了电脑），最终成功构建
 
 
 
@@ -193,12 +191,10 @@ SELECT * FROM some_data_file
 - Catalog中存储当前数据库的表。对于SimpleDB，只有一个全局Catalog。
 - BufferPool是缓冲池，存储固定数量的Page。对于SimpleDB，只有一个全局BufferPool。
 - DbFile是表述单张表的数据结构，能够获取到表在磁盘上存储的具体Pages，并且遍历表的元组。每个DbFile都是通过缓存池获取。
-
-- - 在SimpleDB中，表用数据结构DbFile表示，表中的数据存储在Page上，每个PageId对应一个Page。BufferPool的设计类似于cache，将一部分Page存储在内存中，其余存储在磁盘上。这种设计能在存储速度和存储空间上都较优。当PageId对应的Page不在BufferPool中时，从磁盘中读取对应的Page，并加入到BufferPool中。若BufferPool已满，则需要淘汰Page（采用淘汰策略决定被淘汰的Page，如最近最久未使用等），然后将新读入的Page放在被淘汰的Page的位置。因此，BufferPool中需要映射集合，将PageId映射到BPageId（BPageId是Page在BufferPool中的位置，通过BPageId能够直接在BufferPool中获取到Page）。
-- HeapFile实现了接口DbFile。
+    - 在SimpleDB中，表用数据结构DbFile表示，表中的数据存储在Page上，每个PageId对应一个Page。BufferPool的设计类似于cache，将一部分Page存储在内存中，其余存储在磁盘上。这种设计能在存储速度和存储空间上都较优。当PageId对应的Page不在BufferPool中时，从磁盘中读取对应的Page，并加入到BufferPool中。若BufferPool已满，则需要淘汰Page（采用淘汰策略决定被淘汰的Page，如最近最久未使用等），然后将新读入的Page放在被淘汰的Page的位置。因此，BufferPool中需要映射集合，将PageId映射到BPageId（BPageId是Page在BufferPool中的位置，通过BPageId能够直接在BufferPool中获取到Page）。
+    - HeapFile实现了接口DbFile。
 
 - HeapPage实现了接口Page，是用堆文件的方式存储Tuple。包括PageId pid，Tuple描述td、指明当前位置是否为空的header（类似位图）、Tuple集合tuples、槽位数量numSlots，还有用于恢复数据的oldData和oldDataLock。
 - RecordID包括两部分：PageId和tupleNumber。
-
-- - PageId是个接口，说明所在的Page。例如HeapPageId中只需包含两个变量，tableId和pageNumber，说明该Page位于哪张表的哪一页上。
-- tupleNumber说明是该页的第几个元组。
+    - PageId是个接口，说明所在的Page。例如HeapPageId中只需包含两个变量，tableId和pageNumber，说明该Page位于哪张表的哪一页上。
+    - tupleNumber说明是该页的第几个元组。
