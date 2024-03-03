@@ -190,7 +190,7 @@ After completing this exercise, you should be able to pass some of the unit test
 
 完成这个练习后，你应该能够通过BTreeFileDeleteTest.java中的一些单元测试（如testStealFromLeftLeafPage和testStealFromRightLeafPage）。系统测试可能需要几秒钟才能完成，因为它们会创建一个大的B+树，以便全面测试系统。
 
-Exercise 4: Merging pages
+## Exercise 4: Merging pages
 
 Implement BTreeFile.mergeLeafPages() and BTreeFile.mergeInternalPages().
 
