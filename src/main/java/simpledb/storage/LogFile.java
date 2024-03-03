@@ -459,7 +459,10 @@ public class LogFile {
         synchronized (Database.getBufferPool()) {
             synchronized(this) {
                 preAppend();
-                // some code goes here
+                Long offset = tidToFirstLogRecord.get(tid.getId());
+                rollback(tid, offset, true);
+                // 将raf的文件指针指向正确的偏移位置
+                raf.seek(raf.length());
             }
         }
     }
@@ -486,12 +489,123 @@ public class LogFile {
         synchronized (Database.getBufferPool()) {
             synchronized (this) {
                 recoveryUndecided = false;
-                // some code goes here
+                raf.seek(0);
+                Set<Long> commitId = new HashSet<>();
+                Map<Long, List<Page>> beforePages = new HashMap<>();
+                Map<Long, List<Page>> afterPages = new HashMap<>();
+                // 记录checkpoint时间点所有活跃的事务,判断是回滚还是重放
+                Map<Long, Long> activeTransactions = new HashMap<>();
+                // 获取最新checkpoint位置
+                long checkpoint = raf.readLong();
+                // 定位到最新的checkpoint位置
+                if (checkpoint != -1) {
+                    raf.seek(checkpoint);
+                }
+                while (raf.getFilePointer() != raf.length()) {
+                    int cpType = raf.readInt();
+                    long cpTid = raf.readLong();
+                    switch (cpType) {
+                        case BEGIN_RECORD:
+                        case ABORT_RECORD:
+                            break;
+                        case COMMIT_RECORD:
+                            commitId.add(cpTid);
+                            break;
+                        case CHECKPOINT_RECORD:
+                            int numTransactions = raf.readInt();
+                            while (numTransactions-- > 0) {
+                                long tid = raf.readLong();
+                                long firstRecord = raf.readLong();
+                                activeTransactions.put(tid, firstRecord);
+                            }
+                            break;
+                        case UPDATE_RECORD:
+                            Page before_image = readPageData(raf);
+                            Page after_image = readPageData(raf);
+                            List<Page> before = beforePages.getOrDefault(cpTid, new ArrayList<>());
+                            before.add(before_image);
+                            beforePages.put(cpTid, before);
+                            List<Page> after = afterPages.getOrDefault(cpTid, new ArrayList<>());
+                            after.add(after_image);
+                            afterPages.put(cpTid, after);
+                            break;
+                    }
+                    raf.readLong();
+                }
+
+                // 处理未提交的事务
+                for (Long tid : beforePages.keySet()) {
+                    if (!commitId.contains(tid)) {
+                        List<Page> pages = beforePages.get(tid);
+                        for (Page page : pages) {
+                            Database.getCatalog().getDatabaseFile(page.getId().getTableId()).writePage(page);
+                        }
+                    }
+                }
+
+                // 处理已提交的事务
+                for (Long tid : afterPages.keySet()) {
+                    if (commitId.contains(tid)) {
+                        List<Page> pages = afterPages.get(tid);
+                        for (Page page : pages) {
+                            Database.getCatalog().getDatabaseFile(page.getId().getTableId()).writePage(page);
+                        }
+                    }
+                }
+
+                // 处理checkpoint点发生时的活跃事务,判断是否需要回滚
+                for (Map.Entry<Long, Long> entry : activeTransactions.entrySet()) {
+                    Long transactionId = entry.getKey();
+                    Long offset = entry.getValue();
+                    // 若checkpoint后，活跃事务未提交，则需要回滚事务
+                    if(!commitId.contains(transactionId)) {
+                        rollback(new TransactionId(transactionId), offset, false);
+                    }
+                }
             }
          }
     }
 
-    /** Print out a human readable represenation of the log */
+    private void rollback(TransactionId tid, Long offset, Boolean updateBufferPool) throws IOException {
+        raf.seek(offset);
+        Page rollBeforePage = null;
+        while (raf.getFilePointer() != raf.length()) {
+            int cpType = raf.readInt();
+            long cpTid = raf.readLong();
+            switch (cpType) {
+                case BEGIN_RECORD:
+                case ABORT_RECORD:
+                case COMMIT_RECORD:
+                    break;
+                case CHECKPOINT_RECORD:
+                    int numTransactions = raf.readInt();
+                    while (numTransactions-- > 0) {
+                        raf.readLong();
+                        raf.readLong();
+                    }
+                    break;
+                case UPDATE_RECORD:
+                    Page before = readPageData(raf);
+                    readPageData(raf);
+                    if (cpTid == tid.getId()) {
+                        rollBeforePage = before;
+                    }
+                    break;
+            }
+            raf.readLong();
+        }
+        if(null != rollBeforePage) {
+            PageId pid = rollBeforePage.getId();
+            if(updateBufferPool) {
+                // 丢弃BufferPool中事务对应的pid
+                Database.getBufferPool().discardPage(pid);
+            }
+            // 将前置镜像写回表文件
+            Database.getCatalog().getDatabaseFile(pid.getTableId()).writePage(rollBeforePage);
+        }
+    }
+
+    /** Print out a human-readable representation of the log */
     public void print() throws IOException {
         long curOffset = raf.getFilePointer();
 

@@ -277,12 +277,8 @@ public class BufferPool {
         List<Page> changedPages = tidToPagesMap.get(tid);
         for (Page changedPage : changedPages) {
             changedPage.markDirty(true, tid);
-            if(!pidToBpidMap.containsKey(changedPage.getId())) {
-                if(emptyPages.isEmpty()) evictPage();
-                int emptyPage = emptyPages.remove();
-                pidToBpidMap.put(changedPage.getId(), emptyPage);
-            }
-            pages[pidToBpidMap.get(changedPage.getId())] = changedPage;
+            int bpid = getBufferPageId(changedPage.getId());
+            pages[bpid] = changedPage;
         }
     }
 
@@ -321,6 +317,13 @@ public class BufferPool {
         if(!pidToBpidMap.containsKey(pid)) return;
         DbFile dbFile = Database.getCatalog().getDatabaseFile(pid.getTableId());
         Page page = pages[pidToBpidMap.get(pid)];
+        // append an update record to the log, with
+        // a before-image and after-image.
+        TransactionId dirtier = page.isDirty();
+        if (dirtier != null){
+            Database.getLogFile().logWrite(dirtier, page.getBeforeImage(), page);
+            Database.getLogFile().force();
+        }
         dbFile.writePage(page);
         page.markDirty(false, new TransactionId());
     }
@@ -332,6 +335,9 @@ public class BufferPool {
         if(changedPages == null) return;
         for (Page changedPage : changedPages) {
             flushPage(changedPage.getId());
+            // use current page contents as the before-image
+            // for the next transaction that modifies this page.
+            changedPage.setBeforeImage();
         }
     }
 

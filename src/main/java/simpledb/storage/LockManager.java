@@ -114,7 +114,7 @@ public class LockManager {
                 }
             // 如果当前事务想要加写锁,那么直接等待 --> 因为当前页面上存在其他事务加的锁,无论锁类型是什么,都与写锁互斥,所以直接等待即可
             } else if (acquireType == PageLock.LockType.EXCLUSIVE) {
-                wait(1);
+                wait(5);
                 return false;
             } else {
                 throw new IllegalArgumentException("wrong acquireType");
@@ -160,11 +160,6 @@ public class LockManager {
      * 释放事务对所有页面的锁
      */
     public synchronized void completeTransaction(TransactionId tid) {
-        pageLockMap.forEach(new BiConsumer<PageId, Map<TransactionId, PageLock>>() {
-            @Override
-            public void accept(PageId pageId, Map<TransactionId, PageLock> transactionIdPageLockMap) {
-                releaseLock(pageId, tid);
-            }
-        });
+        pageLockMap.forEach((pageId, transactionIdPageLockMap) -> releaseLock(pageId, tid));
     }
 }
